@@ -1,0 +1,6 @@
+# Versions available in the local CPU validation environment (Python 3.9).
+# The original training-server environment has not been recovered.
+numpy==1.24.3
+torch==1.13.1
+torchvision==0.14.1
+Pillow==11.2.1

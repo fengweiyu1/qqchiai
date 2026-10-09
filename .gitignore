@@ -1,0 +1,23 @@
+# Keep only the download guide; ignore locally downloaded data.
+/data/*
+!/data/README.md
+
+# Runtime outputs
+/outputs/
+/results/
+/logs/
+*.pth
+*.pt
+*.ckpt
+*.npz
+*.npy
+*.zip
+*.tar
+*.tar.gz
+*.log
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.DS_Store
+.ipynb_checkpoints/

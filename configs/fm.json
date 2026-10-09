@@ -1,0 +1,40 @@
+{
+  "dataset": "fm",
+  "data_dir": "data/fashionmnist",
+  "model_path": "outputs/fm/models/fm_arachne_rq1_best_model.pth",
+  "output_root": "outputs/fm",
+  "training": {
+    "epochs": 50,
+    "lr": 0.001,
+    "seed": 0
+  },
+  "mutation": {
+    "n_mutants": 200,
+    "n_bins": 10,
+    "ratio": 3.0,
+    "min_broken": 20,
+    "max_values_per_position": 500,
+    "threshold": 0.001,
+    "test_suite_size": 0,
+    "seed": 0,
+    "n_faulty_list": "2,3,4,5",
+    "max_per_group": 50,
+    "max_try_factor": 20
+  },
+  "localization": {
+    "n_mutants": 9999,
+    "execution": "both",
+    "fi_neuron2out": "pc"
+  },
+  "repair": {
+    "n_mutants_single": 50,
+    "n_mutants_multi": 200,
+    "n_fix_list_single": "1,2,3,5,8",
+    "n_fix_list_multi": "2,5,10",
+    "alpha_list": "1,10",
+    "max_gen": 100,
+    "workers": 1,
+    "split_seed": 0,
+    "localizers": "ours,arachnevar,deepfaultvar,guidervar,deepfault,guider,vere,random,truefault"
+  }
+}

@@ -9,8 +9,6 @@ This repository provides the implementation and experimental code for weight-lev
 - torchvision: 0.14.1
 - NumPy: 1.24.3
 - Pillow: 11.2.1
-- SciPy: 1.13.1
-- Matplotlib: 3.9.4
 
 The scripts use CUDA when available and CPU otherwise. Dependency versions are specified in `requirements.txt`.
 
@@ -84,8 +82,6 @@ python scripts/run_localization.py --config configs/fm.json --dry-run
 
 Use `--mode single` for the single-fault pool and `--mode multi` for the multiple-fault pool. Use `--data-dir` to specify another dataset location, `--mutant-pool` to select an existing pool for localization or repair, and `--output-dir` to choose a result directory. Relative paths are resolved from the repository root.
 
-The analysis entry points are `analysis/rq1.py`, `analysis/rq2.py`, and `analysis/rq3.py`. They read the JSON outputs for the corresponding RQ and save PNG/PDF figures under `figures/`, CSV tables under `tables/`, and analysis metadata in `rq<N>_analysis.json`. They process both fault modes by default; use `--mode single` or `--mode multi` to process one mode. Use `--results-dir` to point to another RQ result root and `--output-dir` to save the analysis elsewhere.
-
 The commands in the following section use separate result directories for each RQ. Each run saves its effective settings in `run_settings.json`. To repeat an experiment, choose a new output directory; scripts refuse to overwrite an existing primary result file.
 
 ## Reproduction of Experimental Results
@@ -108,15 +104,7 @@ outputs/fm/rq1/single/methods/faulty_ranks.json
 outputs/fm/rq1/multi/methods/faulty_ranks.json
 ```
 
-Result keys use `G` for gradient involvement and `FI` for forward-impact involvement. The runner also records auxiliary configurations. The RQ1 analysis selects exactly the ten combinations of `G`/`FI` with `QQ`, `QQ_deficit`, `QQ_loss`, `QQ_cosSim`, and `QQ_max_log`. Ranks are 1-based.
-
-Generate the RQ1 curves, normalized AUC summaries, and pairwise comparison matrices:
-
-```bash
-python analysis/rq1.py --config configs/fm.json
-```
-
-The default inspected-weight windows are 1% and 20%; use `--windows` to change them. Pairwise comparisons use mutant-level AUCs, two-sided Wilcoxon tests, and Holm correction over all 45 pairs per mode, window, and metric.
+Result keys use `G` for gradient involvement and `FI` for forward-impact involvement. The runner also records auxiliary configurations. The ten RQ1 configurations are the combinations of `G`/`FI` with `QQ`, `QQ_deficit`, `QQ_loss`, `QQ_cosSim`, and `QQ_max_log`. Ranks are 1-based.
 
 The selected configuration, `G_Cos`, is called **our method** in RQ2 and RQ3. Its implementation key is `G_QQ_cosSim_cos_ochiai`.
 
@@ -143,13 +131,7 @@ For each mode, results are saved under `outputs/fm/rq2/<mode>/methods/faulty_ran
 | Guider | `methods` | `BQ_wfn` |
 | VeRe | `vere` | `VeRe_it10`, `VeRe_it15`, or `VeRe_it20` |
 
-Generate the RQ2 curves, normalized AUC summaries, and pairwise comparisons:
-
-```bash
-python analysis/rq2.py --config configs/fm.json
-```
-
-The analysis aligns methods and VeRe by mutant ID. Following the final experiment plotting code, it selects the VeRe interval multiplier with the highest mean DR through 20% of weights from 1.0, 1.5, and 2.0, separately for each fault mode and dataset. The selected key and excluded IDs are recorded in `rq2_analysis.json`. Use `--vere-selection it10`, `it15`, or `it20` to choose a fixed multiplier. Pairwise comparisons apply Holm correction over all 21 pairs per mode, window, and metric. Implementation details and adaptations are described in [THIRD_PARTY.md](THIRD_PARTY.md).
+Implementation details and adaptations are described in [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ### RQ3: Does More Accurate Localisation Lead to Better Repair?
 
@@ -179,11 +161,3 @@ Each result records the method (`localizer`), repair budget (`n_fix`), alpha, an
 - Breakage rate: `n_new_broken / n_mut_correct`.
 
 For aggregate rates, sum the corresponding counts across mutants before taking the ratio. A rate is undefined when its denominator is zero.
-
-Generate the RQ3 repair and breakage plots and statistical tables:
-
-```bash
-python analysis/rq3.py --config configs/fm.json
-```
-
-`tables/rq3_summary.csv` includes pooled and per-mutant mean rates, fault-hit rates, and accuracy ratios. `tables/rq3_comparisons.csv` compares our method with each available baseline using paired mutant-level repair rates, with Holm correction within each mode, budget, and alpha. `tables/rq3_alpha_comparisons.csv` compares alpha=10 with alpha=1 for repair and breakage, correcting across methods within each mode, budget, and metric. Undefined rates are excluded from the corresponding paired test, and sample counts are recorded. The repair-time VeRe multiplier remains fixed at 1.0.

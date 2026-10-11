@@ -1,209 +1,189 @@
-# Weight-level fault localization for neural networks
+# Weight level fault localization for neural networks
 
-Source code for training the benchmark models, constructing faulty models,
-localizing injected faults, and evaluating localization through neural-network
-repair. The supported datasets are Fashion-MNIST, CIFAR-10, and GTSRB; mutations
-and repairs target the final linear layer, `fc2.weight`.
+This repository provides the implementation and experimental code for weight-level fault localization in neural networks. The experiments use Fashion-MNIST, CIFAR-10, and GTSRB, and cover faulty model construction, fault localization, and neural-network repair. Fault injection and repair operate on the final linear layer, `fc2.weight`.
 
-This is a local preparation draft. It contains code and configuration only.
-Datasets, pretrained models, mutant checkpoints, prior experiment results, and
-plotting scripts are not distributed here.
+## System Requirements
 
-## Layout
+- Python: 3.9
+- PyTorch: 1.13.1
+- torchvision: 0.14.1
+- NumPy: 1.24.3
+- Pillow: 11.2.1
+- SciPy: 1.13.1
+- Matplotlib: 3.9.4
 
-```text
-configs/             Dataset-specific experiment settings (JSON)
-data/                README with dataset download and placement instructions
-src/models/          Network definitions and training routines
-src/data_loading/    Data loading and the model-specific preprocessing
-src/mutation/        Single-fault generation and multi-fault composition
-src/localization/    Localization signals, scores, and baseline adapters
-src/repair/          Differential-evolution repair
-src/metrics/         Localization and repair metrics
-scripts/             Command-line entry points and an offline smoke test
-```
+The scripts use CUDA when available and CPU otherwise. Dependency versions are specified in `requirements.txt`.
 
-## Environment
+## Installation
 
-The local validation environment uses Python 3.9, PyTorch 1.13.1,
-torchvision 0.14.1, NumPy 1.24.3, and Pillow 11.2.1. The corresponding package
-versions are recorded in `requirements.txt`. These are the local validation
-versions, not a recovered specification of the original training server.
+From the repository root, create a virtual environment and install the dependencies:
 
 ```bash
 python3.9 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+```
+
+To check the pipeline using synthetic inputs:
+
+```bash
 python scripts/smoke_test.py
 ```
 
-The smoke test uses synthetic tensors and a temporary directory. It checks
-three model shapes, analytical gradients against autograd, the repair objective
-against full-logit evaluation, and the mutation/localization/repair pipeline.
-It does not download datasets or retain experiment outputs.
+## Preparation
 
-The experiment code chooses CUDA when available and otherwise uses CPU.
-The packaged defaults use one repair worker. Set `--workers` to increase
-parallelism after checking available memory. Full localization materializes
-test-by-weight arrays; its memory cost is much greater than the smoke test.
-Full-run runtime, peak memory, clean-environment installation, and CUDA execution
-have not yet been measured or validated for this package.
+### Datasets
 
-## Download the datasets
+The experiments use the following datasets and configuration files:
 
-The `data/` directory contains only a README with download and placement
-instructions. Dataset directories are created locally when data is downloaded.
-See [data/README.md](data/README.md); downloaded data is ignored by Git.
-
-Obtain each dataset from its maintainers:
-
-| Dataset | Download information | Default local root | Input preprocessing |
+| Dataset | Download | Local directory | Configuration |
 | --- | --- | --- | --- |
-| Fashion-MNIST | [Official repository and downloads](https://github.com/zalandoresearch/fashion-mnist#get-the-data) | `data/fashionmnist` | 28 × 28 grayscale; tensor conversion; mean/std 0.5 |
-| CIFAR-10 | [Official dataset page](https://www.cs.toronto.edu/~kriz/cifar.html) | `data/cifar10` | 32 × 32 RGB; tensor conversion; mean/std 0.5 per channel |
-| GTSRB | [Benchmark maintainers' download page](https://github.com/houbensebastian/GermanTrafficSignBenchmarks#gtsrb--german-traffic-sign-recognition-benchmark) | `data/gtsrb` | Resize to 48 × 48 RGB; tensor conversion; mean/std 0.5 per channel |
+| Fashion-MNIST | [Official repository](https://github.com/zalandoresearch/fashion-mnist#get-the-data) | `data/fashionmnist` | `configs/fm.json` |
+| CIFAR-10 | [Official dataset page](https://www.cs.toronto.edu/~kriz/cifar.html) | `data/cifar10` | `configs/cifar10.json` |
+| GTSRB | [Download information](https://github.com/houbensebastian/GermanTrafficSignBenchmarks#gtsrb--german-traffic-sign-recognition-benchmark) | `data/gtsrb` | `configs/gtsrb.json` |
 
-The loaders use torchvision's dataset classes with `download=True`: missing
-files are downloaded when a training or experiment command first loads a
-dataset. Existing correctly placed data is reused. No dataset is part of the
-repository. For manual installation with the pinned torchvision version, the
-extracted paths are:
+Missing dataset files are downloaded automatically when first accessed. Existing data is reused. For manual installation, see [data/README.md](data/README.md).
 
-```text
-data/fashionmnist/FashionMNIST/raw/       # The four extracted IDX files
-data/cifar10/cifar-10-batches-py/         # CIFAR-10 Python batches
-data/gtsrb/gtsrb/GTSRB/Training/          # Class folders containing PPM images
-data/gtsrb/gtsrb/GTSRB/Final_Test/Images/
-data/gtsrb/gtsrb/GT-final_test.csv
-```
+The commands below use Fashion-MNIST. Replace `configs/fm.json` with `configs/cifar10.json` or `configs/gtsrb.json` to run the other datasets.
 
-For GTSRB, torchvision 0.14.1 obtains `GTSRB-Training_fixed.zip`,
-`GTSRB_Final_Test_Images.zip`, and `GTSRB_Final_Test_GT.zip` from the
-[dataset archive](https://sid.erda.dk/public/archives/daaeac0d7ce1152aea9b61d9f1e19370/).
-Supply all three if installing manually.
+### Model Training
 
-Train and test splits follow the dataset loaders. Test loading is not shuffled.
-The actual model-specific preprocessing is in `src/data_loading/`.
-
-## Configuration and paths
-
-Use `configs/fm.json`, `configs/cifar10.json`, or `configs/gtsrb.json`.
-JSON is used so that configuration loading requires no additional library.
-Relative paths, including `--config`, are resolved from this artifact's root,
-regardless of the current working directory. Absolute paths are also accepted.
-
-Each entry point supports `--help`, `--dry-run`, `--data-dir`, and `--output-dir`.
-Command-line options override configuration values. For example:
-
-```bash
-python scripts/run_localization.py --config configs/fm.json --dry-run
-```
-
-The generation defaults request 200 single-fault models, using 10 weight-magnitude
-bins, a replacement magnitude ratio of 3, and a behavioral-change threshold of
-0.001. The minimum newly broken-test count is 20 for Fashion-MNIST and 10 for
-CIFAR-10/GTSRB. Multi-fault levels are 2, 3, 4, and 5 faults, requesting up to
-50 models per level. Candidate shortages and rejection criteria can result in
-fewer accepted models; the code reports the actual count.
-
-These values were assembled from the inspected experiment jobs. Their final
-correspondence to the submitted manuscript remains to be confirmed.
-
-## Run the experiments
-
-The following commands use Fashion-MNIST. Change the configuration file for
-the other datasets. Runtime files go to `outputs/<dataset>/`, which is ignored
-by Git. Commands refuse to overwrite an existing primary output file; choose a
-new `--output-dir` for an independent run. Effective settings are saved beside
-new outputs as `run_settings.json`.
-
-### 1. Prepare a trained model
+Train the benchmark model:
 
 ```bash
 python scripts/train_model.py --config configs/fm.json
 ```
 
-This writes `outputs/fm/models/fm_arachne_rq1_best_model.pth`.
-The extracted training routine uses Adam, 50 epochs, a learning rate of 0.001,
-and a StepLR schedule. It selects the checkpoint with the best **test-split**
-accuracy, preserving the existing training procedure. The entry point additionally
-sets the configured seed before training; this does not guarantee bitwise
-agreement across devices or software versions.
+The checkpoint is saved to `outputs/fm/models/fm_arachne_rq1_best_model.pth`. To use an existing compatible checkpoint, set `model_path` in the configuration or pass `--model-path` to the faulty model generation command. Pretrained checkpoints are not included in the repository; retraining produces a new benchmark instance.
 
-An existing compatible checkpoint can instead be supplied using `--model-path`
-in the generation command or `model_path` in the configuration. No original
-experiment checkpoint is bundled. Retraining produces a new benchmark instance
-and is not asserted to reproduce the historical paper numbers exactly.
+### Construction of Benchmarks
 
-### 2. Generate faulty models
+Generate single-fault models, then construct multiple-fault models from the accepted single faults:
 
 ```bash
 python scripts/generate_mutants.py --config configs/fm.json --mode single
 python scripts/generate_mutants.py --config configs/fm.json --mode multi
 ```
 
-The single-fault generator selects gradient candidates, stratifies them by
-weight magnitude, and tests replacement values from the same layer. The
-multi-fault generator composes accepted single faults and applies the original
-acceptance criteria. Outputs include `mutant_pool.json` and the corresponding
-`mutant_*.pth` files under `outputs/fm/mutants_single/` or `mutants_multi/`.
+By default, generation requests 200 single-fault models and up to 50 models for each multiple-fault level: 2, 3, 4, and 5 faults. The accepted count depends on the generation criteria.
 
-### 3. Localize the faults
+The resulting checkpoints and `mutant_pool.json` files are stored under:
 
-```bash
-python scripts/run_localization.py --config configs/fm.json --mode single
-python scripts/run_localization.py --config configs/fm.json --mode multi
+```text
+outputs/fm/mutants_single/
+outputs/fm/mutants_multi/
 ```
 
-Failed tests are those changing from correct to incorrect predictions. Passing
-tests are those remaining correct; they are sampled at a 1:1 ratio with failed
-tests, using the mutant ID as the sampling seed. Other test outcomes are excluded.
-Localization ranks are 1-based and retain the original tie-ordering behavior.
+## Usage
 
-The default runs both gradient and forward-impact involvement, the result-side
-signals and adapted baselines, and a separate VeRe pass using the same test
-selection. Results are written to
-`outputs/fm/localization/<mode>/methods/faulty_ranks.json` and
-`outputs/fm/localization/<mode>/vere/faulty_ranks.json`.
-Use `--baseline methods` or `--baseline vere` to run only one group.
-
-### 4. Evaluate through repair
+Experiment settings are stored in `configs/`. Command-line arguments override the corresponding configuration values. Each script supports `--help` to list its options and `--dry-run` to display the resolved settings without loading data or running an experiment.
 
 ```bash
-python scripts/run_repair.py --config configs/fm.json --mode single
-python scripts/run_repair.py --config configs/fm.json --mode multi
+python scripts/run_localization.py --config configs/fm.json --dry-run
 ```
 
-Repair recomputes localization on the repair half of the test split; it does not
-reuse full-test localization ranks from the previous step. The other half is
-held out from both localization and repair. The split seed defaults to 0.
-Single-fault repair uses budgets 1, 2, 3, 5, and 8; multi-fault repair uses 2, 5,
-and 10. Both use alpha values 1 and 10, a population of 100, and at most 100 DE
-generations. The default examines the first 50 single-fault or 200 multi-fault
-models; models with no usable repair-side failures/passes are skipped.
+Use `--mode single` for the single-fault pool and `--mode multi` for the multiple-fault pool. Use `--data-dir` to specify another dataset location, `--mutant-pool` to select an existing pool for localization or repair, and `--output-dir` to choose a result directory. Relative paths are resolved from the repository root.
 
-The output `outputs/fm/repair/<mode>/repair_results.json` includes per-model
-repair and breakage counts on both splits. The terminal summary pools counts
-across models; it is not a mean of per-model rates. `random` is a comparison
-baseline and `truefault` is an oracle control requiring known injected faults.
+The analysis entry points are `analysis/rq1.py`, `analysis/rq2.py`, and `analysis/rq3.py`. They read the JSON outputs for the corresponding RQ and save PNG/PDF figures under `figures/`, CSV tables under `tables/`, and analysis metadata in `rq<N>_analysis.json`. They process both fault modes by default; use `--mode single` or `--mode multi` to process one mode. Use `--results-dir` to point to another RQ result root and `--output-dir` to save the analysis elsewhere.
 
-For a shorter run on a pool you have already generated:
+The commands in the following section use separate result directories for each RQ. Each run saves its effective settings in `run_settings.json`. To repeat an experiment, choose a new output directory; scripts refuse to overwrite an existing primary result file.
+
+## Reproduction of Experimental Results
+
+### RQ1: Which Combination of Our Approach Performs Best?
+
+RQ1 compares the ten configurations in Section 4, formed by combining two involvement measures with five result-side measures. Run gradient involvement and forward-impact involvement on both fault pools:
 
 ```bash
-python scripts/run_repair.py --config configs/fm.json --n-mutants 2 \
-    --n-fix-list 1 --alpha-list 1 --max-gen 2 --workers 1 \
-    --output-dir outputs/fm/repair/quick-check
+python scripts/run_localization.py --config configs/fm.json --mode single \
+    --baseline methods --execution both --output-dir outputs/fm/rq1/single
+python scripts/run_localization.py --config configs/fm.json --mode multi \
+    --baseline methods --execution both --output-dir outputs/fm/rq1/multi
 ```
 
-This reduced command checks execution only; it is not a paper experiment.
+The faulty-weight ranks are saved to:
 
-## Method provenance and release status
+```text
+outputs/fm/rq1/single/methods/faulty_ranks.json
+outputs/fm/rq1/multi/methods/faulty_ranks.json
+```
 
-See [THIRD_PARTY.md](THIRD_PARTY.md) for baseline adaptations and source references.
-Full upstream baseline repositories are not bundled. A project-wide license has
-not yet been selected for this local draft.
+Result keys use `G` for gradient involvement and `FI` for forward-impact involvement. The runner also records auxiliary configurations. The RQ1 analysis selects exactly the ten combinations of `G`/`FI` with `QQ`, `QQ_deficit`, `QQ_loss`, `QQ_cosSim`, and `QQ_max_log`. Ranks are 1-based.
 
-Before publication, confirm the final experiment configuration, original model
-provenance/training environment, dependency installation on the target platform,
-and project/third-party licensing. Full dataset experiments have not been rerun
-as part of this packaging work.
+Generate the RQ1 curves, normalized AUC summaries, and pairwise comparison matrices:
+
+```bash
+python analysis/rq1.py --config configs/fm.json
+```
+
+The default inspected-weight windows are 1% and 20%; use `--windows` to change them. Pairwise comparisons use mutant-level AUCs, two-sided Wilcoxon tests, and Holm correction over all 45 pairs per mode, window, and metric.
+
+The selected configuration, `G_Cos`, is called **our method** in RQ2 and RQ3. Its implementation key is `G_QQ_cosSim_cos_ochiai`.
+
+### RQ2: How Does Our Method Compare with Existing Methods?
+
+RQ2 compares our method with the existing methods and their weight-level adaptations. Run the localization methods and the VeRe baseline on both pools:
+
+```bash
+python scripts/run_localization.py --config configs/fm.json --mode single \
+    --baseline all --execution both --output-dir outputs/fm/rq2/single
+python scripts/run_localization.py --config configs/fm.json --mode multi \
+    --baseline all --execution both --output-dir outputs/fm/rq2/multi
+```
+
+For each mode, results are saved under `outputs/fm/rq2/<mode>/methods/faulty_ranks.json` and `outputs/fm/rq2/<mode>/vere/faulty_ranks.json`. The following keys identify the comparison methods:
+
+| Method | Result group | Key |
+| --- | --- | --- |
+| Our method (`G_Cos`) | `methods` | `G_QQ_cosSim_cos_ochiai` |
+| ArachneVar | `methods` | `G_QB_cos_ochiai` |
+| DeepFaultVar | `methods` | `G_DFVar_k10` |
+| GuiderVar | `methods` | `G_GDVar_k10` |
+| DeepFault | `methods` | `BB_wfn` |
+| Guider | `methods` | `BQ_wfn` |
+| VeRe | `vere` | `VeRe_it10`, `VeRe_it15`, or `VeRe_it20` |
+
+Generate the RQ2 curves, normalized AUC summaries, and pairwise comparisons:
+
+```bash
+python analysis/rq2.py --config configs/fm.json
+```
+
+The analysis aligns methods and VeRe by mutant ID. Following the final experiment plotting code, it selects the VeRe interval multiplier with the highest mean DR through 20% of weights from 1.0, 1.5, and 2.0, separately for each fault mode and dataset. The selected key and excluded IDs are recorded in `rq2_analysis.json`. Use `--vere-selection it10`, `it15`, or `it20` to choose a fixed multiplier. Pairwise comparisons apply Holm correction over all 21 pairs per mode, window, and metric. Implementation details and adaptations are described in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+### RQ3: Does More Accurate Localisation Lead to Better Repair?
+
+RQ3 compares the repair outcomes obtained by selecting weights with different localization methods. All methods use a shared differential-evolution repair procedure:
+
+```bash
+python scripts/run_repair.py --config configs/fm.json --mode single \
+    --output-dir outputs/fm/rq3/single
+python scripts/run_repair.py --config configs/fm.json --mode multi \
+    --output-dir outputs/fm/rq3/multi
+```
+
+The default comparison includes `ours` (`G_Cos`), `arachnevar`, `deepfaultvar`, `guidervar`, `deepfault`, `guider`, and `vere`, along with `random` and the oracle control `truefault`. Use `--localizers` to select a comma-separated subset.
+
+Repair recomputes localization on one half of the test split and evaluates on the held-out half. The default repair budgets are 1, 2, 3, 5, and 8 for single faults, and 2, 5, and 10 for multiple faults. Both modes use alpha values 1 and 10, a DE population of 100, and at most 100 generations. These settings can be changed in the configuration or through command-line arguments.
+
+Results are saved to:
+
+```text
+outputs/fm/rq3/single/repair_results.json
+outputs/fm/rq3/multi/repair_results.json
+```
+
+Each result records the method (`localizer`), repair budget (`n_fix`), alpha, and number of selected injected faults (`fault_hit`). Results under `R` describe the repair split; results under `E` describe the held-out split. Compare methods at the same repair budget and alpha using:
+
+- Repair rate: `n_fixed / n_broken`.
+- Breakage rate: `n_new_broken / n_mut_correct`.
+
+For aggregate rates, sum the corresponding counts across mutants before taking the ratio. A rate is undefined when its denominator is zero.
+
+Generate the RQ3 repair and breakage plots and statistical tables:
+
+```bash
+python analysis/rq3.py --config configs/fm.json
+```
+
+`tables/rq3_summary.csv` includes pooled and per-mutant mean rates, fault-hit rates, and accuracy ratios. `tables/rq3_comparisons.csv` compares our method with each available baseline using paired mutant-level repair rates, with Holm correction within each mode, budget, and alpha. `tables/rq3_alpha_comparisons.csv` compares alpha=10 with alpha=1 for repair and breakage, correcting across methods within each mode, budget, and metric. Undefined rates are excluded from the corresponding paired test, and sample counts are recorded. The repair-time VeRe multiplier remains fixed at 1.0.

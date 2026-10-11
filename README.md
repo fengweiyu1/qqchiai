@@ -1,4 +1,4 @@
-# Weight level fault localization for neural networks
+# Quantitative Fault Localisation for Deep Neural Networks
 
 **Supplementary proof:** [Pass/fail score ordering of the five outcome measures — Property 1](PROPERTY_PROOF.md)
 
